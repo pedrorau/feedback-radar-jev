@@ -1,0 +1,399 @@
+---
+// Página estática servida por Astro. Toda la lógica de red pasa por
+// /api/jev (la API route), que es donde vive la key. Aquí, cero secretos.
+---
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Feedback Radar · Jev</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
+<style is:global>
+  /* is:global es importante: las tarjetas de resultado se crean por JS,
+     y los estilos con scope de Astro no las alcanzarían. */
+  :root {
+    --paper: #f5f4f6;
+    --card: #ffffff;
+    --ink: #17151a;
+    --muted: #6b6770;
+    --line: #e4e2e7;
+    --magenta: #e451ba;
+    --magenta-deep: #a92c86;
+    --auto: #17915f;
+    --auto-bg: #e7f4ee;
+    --review: #c07708;
+    --review-bg: #fbf1de;
+    --track: #ecebef;
+    --shadow: 0 1px 2px rgba(23,21,26,.05), 0 8px 24px rgba(23,21,26,.05);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: "Space Grotesk", system-ui, sans-serif; line-height: 1.5; font-size: 15px;
+  }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 20px 64px; }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .dot {
+    width: 30px; height: 30px; border-radius: 50%; flex: none;
+    background: radial-gradient(circle at 35% 30%, #f57fce, var(--magenta) 60%, var(--magenta-deep));
+  }
+  h1 { font-size: 24px; font-weight: 700; letter-spacing: -.02em; margin: 0; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 2px 0 0; }
+  .powered { color: var(--muted); font-size: 12.5px; }
+  .powered b { color: var(--ink); font-weight: 600; }
+
+  .keynote {
+    margin: 18px 0 24px; font-size: 12.5px; color: var(--muted);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .keynote code { font-family: "JetBrains Mono", monospace; font-size: 11.5px; background: #eceaef; padding: 2px 6px; border-radius: 5px; color: var(--ink); }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 22px; align-items: start; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
+  .panel-in { padding: 18px; }
+
+  textarea {
+    width: 100%; min-height: 148px; resize: vertical; border: 1px solid var(--line);
+    border-radius: 11px; padding: 13px; font-family: inherit; font-size: 15px; color: var(--ink);
+    background: #fbfbfc; line-height: 1.55;
+  }
+  textarea:focus { outline: 2px solid var(--magenta); outline-offset: -1px; border-color: transparent; }
+
+  .samples { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0 4px; }
+  .chip {
+    font-size: 12.5px; padding: 6px 11px; border: 1px solid var(--line); border-radius: 20px;
+    background: #fff; color: var(--muted); cursor: pointer; font-family: inherit;
+  }
+  .chip:hover { border-color: var(--magenta); color: var(--magenta-deep); }
+
+  .threshold { margin: 20px 0 4px; }
+  .threshold .row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+  .threshold .row span:first-child { font-size: 13px; font-weight: 600; }
+  .thr-val { font-size: 15px; font-weight: 700; color: var(--magenta-deep); }
+  input[type=range] { width: 100%; accent-color: var(--magenta); }
+  .thr-hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  .run {
+    margin-top: 18px; width: 100%; padding: 13px; border: none; border-radius: 11px;
+    background: var(--ink); color: #fff; font-family: inherit; font-size: 15px; font-weight: 600;
+    cursor: pointer; letter-spacing: -.01em;
+  }
+  .run:hover { background: #000; }
+  .run:disabled { opacity: .5; cursor: default; }
+
+  .meta { margin-top: 14px; font-size: 12.5px; color: var(--muted); min-height: 18px; }
+  .meta b { color: var(--ink); font-weight: 600; }
+  .err {
+    margin-top: 14px; padding: 11px 13px; border-radius: 10px; font-size: 13px;
+    background: #fcece9; color: #9a2b1a; border: 1px solid #f3cfc7; display: none; white-space: pre-wrap;
+  }
+
+  .results-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 2px 12px; }
+  .results-head h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
+  .legend i { font-style: normal; display: inline-flex; align-items: center; gap: 5px; }
+  .swatch { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+  .cards { display: flex; flex-direction: column; gap: 12px; }
+  .empty { color: var(--muted); font-size: 14px; padding: 40px 8px; text-align: center; }
+
+  .dcard { border: 1px solid var(--line); border-radius: 13px; padding: 15px 16px; background: #fff; }
+  .dcard .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 3px; }
+  .dcard .name { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .01em; }
+  .dcard .value { font-size: 21px; font-weight: 700; letter-spacing: -.02em; margin: 1px 0 2px; }
+  .dcard .value small { font-size: 13px; font-weight: 500; color: var(--muted); }
+  .badge { font-size: 11.5px; font-weight: 700; padding: 4px 10px; border-radius: 20px; white-space: nowrap; flex: none; }
+  .badge.auto { background: var(--auto-bg); color: var(--auto); }
+  .badge.review { background: var(--review-bg); color: var(--review); }
+  .type-tag { font-size: 10.5px; font-weight: 600; color: var(--muted); border: 1px solid var(--line); padding: 2px 7px; border-radius: 6px; }
+
+  .bars { margin: 12px 0 4px; display: flex; flex-direction: column; gap: 7px; }
+  .bar-row { display: grid; grid-template-columns: 120px 1fr 46px; align-items: center; gap: 10px; }
+  .bar-label { font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-label.dim { color: var(--muted); }
+  .bar-track { height: 8px; background: var(--track); border-radius: 5px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 5px; background: var(--magenta); transition: width .5s cubic-bezier(.2,.7,.2,1); }
+  .bar-fill.dim { background: #c9c6cf; }
+  .bar-pct { font-size: 12px; text-align: right; color: var(--muted); }
+
+  .conf { margin-top: 10px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .conf b { color: var(--ink); font-weight: 700; }
+  .conf .track { flex: 1; height: 4px; background: var(--track); border-radius: 3px; overflow: hidden; max-width: 160px; }
+  .conf .track i { display: block; height: 100%; background: var(--ink); border-radius: 3px; }
+
+  footer { margin-top: 34px; text-align: center; color: var(--muted); font-size: 12px; }
+  footer code { font-family: "JetBrains Mono", monospace; font-size: 11.5px; background: #eceaef; padding: 2px 6px; border-radius: 5px; }
+
+  @media (max-width: 820px) {
+    .grid { grid-template-columns: 1fr; }
+    .bar-row { grid-template-columns: 96px 1fr 42px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="dot" aria-hidden="true"></div>
+      <div>
+        <h1>Feedback Radar</h1>
+        <p class="sub">Un comentario entra crudo. Salen decisiones tipadas con confianza.</p>
+      </div>
+    </div>
+    <p class="powered">System One Model · <b>jev-latest</b></p>
+  </header>
+
+  <p class="keynote">
+    La API key se lee de tu <code>.env</code> en el servidor — el navegador nunca la ve, y el proxy interno evita el CORS.
+  </p>
+
+  <div class="grid">
+    <!-- INPUT -->
+    <section class="panel">
+      <div class="panel-in">
+        <textarea id="comment" placeholder="Pega el comentario de un usuario...">The latest update broke the login. I've been locked out for 2 days and support hasn't replied. Terrible, I'm about to cancel my subscription.</textarea>
+
+        <div class="samples" id="samples"></div>
+
+        <div class="threshold">
+          <div class="row">
+            <span>Umbral de confianza</span>
+            <span class="thr-val mono" id="thrVal">0.80</span>
+          </div>
+          <input type="range" id="thr" min="0" max="1" step="0.01" value="0.80" />
+          <p class="thr-hint">Sobre el umbral → <b style="color:var(--auto)">AUTO</b> (el código actúa solo). Debajo → <b style="color:var(--review)">REVISAR</b> (a un humano). Muévelo y mira cómo cambian los badges sin volver a llamar a la API.</p>
+        </div>
+
+        <button class="run" id="run">Analizar</button>
+        <div class="meta" id="meta"></div>
+        <div class="err" id="err"></div>
+      </div>
+    </section>
+
+    <!-- RESULTS -->
+    <section class="panel">
+      <div class="panel-in">
+        <div class="results-head">
+          <h2>Decisiones</h2>
+          <div class="legend">
+            <i><span class="swatch" style="background:var(--auto)"></span>Auto</i>
+            <i><span class="swatch" style="background:var(--review)"></span>Revisar</i>
+          </div>
+        </div>
+        <div class="cards" id="cards">
+          <div class="empty">Pulsa <b>Analizar</b> para ver las decisiones de Jev.</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    4 preguntas en 1 request · vía <code>/api/jev</code> → <code>POST /v1/systemone</code> · input $0.042/MTok · output gratis
+  </footer>
+</div>
+
+<script is:inline>
+// ─────────────────────────────────────────────────────────────
+//  ESQUEMA — el mismo que validaste en el playground.
+//  El frontend arma el body completo; el proxy /api/jev solo le
+//  agrega la API key. Cambia el esquema aquí sin tocar el server.
+// ─────────────────────────────────────────────────────────────
+const QUESTIONS = {
+  sentiment: {
+    type: "choice",
+    instructions: "What is the overall sentiment of `comment`?",
+    criteria: {
+      positive: "Happy or satisfied.",
+      neutral: "Neither clearly positive nor negative.",
+      negative: "Unhappy, frustrated, or complaining."
+    }
+  },
+  category: {
+    type: "choice",
+    instructions: "Which category best describes the main issue in `comment`?",
+    criteria: {
+      bug: "Something is broken or not working as expected.",
+      performance: "Slowness, crashes, or resource problems.",
+      ui_ux: "Design, layout, or usability complaints.",
+      feature_request: "Asking for something new that doesn't exist yet.",
+      pricing: "Cost, billing, or subscription concerns.",
+      none_applies: "None of the above categories fit."
+    }
+  },
+  is_urgent: {
+    type: "noul",
+    instructions: "`comment` conveys urgency or a time-sensitive problem."
+  },
+  severity: {
+    type: "score",
+    instructions: "How severe is the problem described in `comment`?",
+    criteria: [
+      "No real problem, just a passing remark.",
+      "Minor annoyance with an easy workaround.",
+      "Blocks part of the experience.",
+      "Blocks core functionality; the user cannot use the product."
+    ]
+  }
+};
+
+const ORDER = ["sentiment", "category", "is_urgent", "severity"];
+const LABELS = { sentiment: "Sentimiento", category: "Categoría", is_urgent: "Urgencia", severity: "Severidad" };
+
+const SAMPLES = [
+  { t: "Bug crítico", v: "The latest update broke the login. I've been locked out for 2 days and support hasn't replied. Terrible, I'm about to cancel my subscription." },
+  { t: "Elogio + idea", v: "Love the new dashboard, it's so much cleaner! Would be great if you could add a dark mode though." },
+  { t: "Queja de precio", v: "The new pricing is way too expensive for what you get. I'm considering switching to a competitor." },
+  { t: "Fuera de tema", v: "Just wanted to say the weather in Lima has been really nice this week." }
+];
+
+let lastAnswers = null;
+
+const $ = (id) => document.getElementById(id);
+const els = {
+  comment: $("comment"), thr: $("thr"), thrVal: $("thrVal"), run: $("run"),
+  meta: $("meta"), err: $("err"), cards: $("cards"), samples: $("samples")
+};
+
+SAMPLES.forEach(s => {
+  const b = document.createElement("button");
+  b.className = "chip"; b.textContent = s.t;
+  b.onclick = () => { els.comment.value = s.v; };
+  els.samples.appendChild(b);
+});
+
+els.thr.addEventListener("input", () => {
+  els.thrVal.textContent = (+els.thr.value).toFixed(2);
+  if (lastAnswers) render(lastAnswers);
+});
+
+els.run.addEventListener("click", analyze);
+
+async function analyze() {
+  const comment = els.comment.value.trim();
+  hideErr();
+  if (!comment) return showErr("Escribe o elige un comentario para analizar.");
+
+  els.run.disabled = true;
+  els.run.textContent = "Analizando...";
+  els.meta.textContent = "";
+
+  const body = { state: { comment }, model: "jev-latest", questions: QUESTIONS };
+
+  const t0 = performance.now();
+  try {
+    const res = await fetch("/api/jev", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const ms = Math.round(performance.now() - t0);
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || ("HTTP " + res.status) + "\n" + JSON.stringify(data));
+    }
+
+    lastAnswers = data.answers;
+    render(data.answers);
+
+    const inTok = data.usage?.input_tokens ?? 0;
+    const outTok = data.usage?.output_tokens ?? 0;
+    const cost = (inTok / 1e6) * 0.042;
+    els.meta.innerHTML =
+      `<b>${ms} ms</b> · ${inTok} tokens in / ${outTok} out · ~$${cost.toFixed(6)} · modelo <b>${data.model || "jev-latest"}</b>`;
+  } catch (e) {
+    showErr(e.message || String(e));
+  } finally {
+    els.run.disabled = false;
+    els.run.textContent = "Analizar";
+  }
+}
+
+function decide(ans) {
+  const thr = +els.thr.value;
+  if (ans.type === "noul") {
+    const certainty = Math.abs(ans.noul - 0.5) * 2; // Noul no trae confidence
+    return { certainty, auto: certainty >= thr };
+  }
+  const c = ans.confidence ?? 0;
+  return { certainty: c, auto: c >= thr };
+}
+
+function pct(x) { return Math.round(x * 100); }
+function esc(s) { return String(s).replace(/[&<>]/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m])); }
+
+function render(answers) {
+  els.cards.innerHTML = "";
+  ORDER.forEach(id => { if (answers[id]) els.cards.appendChild(renderCard(id, answers[id])); });
+}
+
+function renderCard(id, ans) {
+  const card = document.createElement("div");
+  card.className = "dcard";
+  const d = decide(ans);
+  const badge = d.auto ? `<span class="badge auto">AUTO</span>` : `<span class="badge review">REVISAR</span>`;
+
+  let valueHtml = "", barsHtml = "", confHtml = "";
+
+  if (ans.type === "choice") {
+    valueHtml = `<div class="value">${esc(ans.choice)}</div>`;
+    barsHtml = barsFromProbs(ans.probabilities, ans.choice);
+    confHtml = confBar("Confianza", d.certainty);
+  } else if (ans.type === "score") {
+    const lvls = Object.keys(ans.legend || {}).length;
+    const rounded = Math.round(ans.score);
+    valueHtml = `<div class="value mono">${ans.score.toFixed(2)} <small>de ${lvls - 1}</small></div>` +
+                `<div style="font-size:12.5px;color:var(--muted);margin-top:-1px;">${esc(ans.legend?.[rounded] || "")}</div>`;
+    barsHtml = barsFromProbs(ans.probabilities, String(rounded), ans.legend);
+    confHtml = confBar("Confianza", d.certainty);
+  } else if (ans.type === "noul") {
+    const yes = ans.noul >= 0.5;
+    valueHtml = `<div class="value">${yes ? "Sí" : "No"} <small class="mono">${ans.noul.toFixed(2)}</small></div>`;
+    barsHtml = `<div class="bars">${barRow("sí (urgente)", ans.noul, yes)}${barRow("no", 1 - ans.noul, !yes)}</div>`;
+    confHtml = confBar("Certeza (dist. de 0.5)", d.certainty);
+  }
+
+  card.innerHTML =
+    `<div class="top">
+       <div><div class="name">${LABELS[id] || id}</div>${valueHtml}</div>
+       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">${badge}<span class="type-tag">${ans.type}</span></div>
+     </div>${barsHtml}${confHtml}`;
+  return card;
+}
+
+function barsFromProbs(probs, winnerKey, legend) {
+  const entries = Object.entries(probs).sort((a, b) => b[1] - a[1]);
+  let rows = "";
+  for (const [k, p] of entries) {
+    const label = legend ? (legend[k] ? `${k} · ${legend[k]}` : k) : k;
+    rows += barRow(label, p, k === String(winnerKey));
+  }
+  return `<div class="bars">${rows}</div>`;
+}
+
+function barRow(label, p, winner) {
+  return `<div class="bar-row">
+    <span class="bar-label ${winner ? "" : "dim"}" title="${esc(label)}">${esc(label)}</span>
+    <span class="bar-track"><span class="bar-fill ${winner ? "" : "dim"}" style="width:${pct(p)}%"></span></span>
+    <span class="bar-pct mono">${pct(p)}%</span>
+  </div>`;
+}
+
+function confBar(label, v) {
+  return `<div class="conf"><span>${label}</span><span class="track"><i style="width:${pct(v)}%"></i></span><b class="mono">${v.toFixed(2)}</b></div>`;
+}
+
+function showErr(msg) { els.err.style.display = "block"; els.err.textContent = msg; }
+function hideErr() { els.err.style.display = "none"; els.err.textContent = ""; }
+</script>
+</body>
+</html>

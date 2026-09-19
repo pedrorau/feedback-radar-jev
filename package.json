@@ -1,0 +1,15 @@
+{
+  "name": "feedback-radar-jev",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Demo web del System One Model Jev (TypeSafe AI): un comentario crudo entra, salen decisiones tipadas con confianza. Incluye su propio proxy para evitar CORS y no exponer la API key.",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "astro": "^5.0.0",
+    "@astrojs/node": "^9.0.0"
+  }
+}
