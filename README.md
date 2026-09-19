@@ -1,4 +1,3 @@
-# feedback-radar-jev
 # Feedback Radar · Jev (TypeSafe AI)
 
 Una demo web de un **System One Model** (Jev, de [TypeSafe AI](https://typesafe.ai)).
@@ -66,6 +65,28 @@ astro.config.mjs     → modo servidor + adapter de Node
   - `noul` — pregunta sí/no; devuelve la probabilidad de "sí" (no trae `confidence`
     aparte, por eso la certeza se calcula como distancia de 0.5).
 - El proxy es un pass-through, así que no necesitas tocarlo al cambiar el esquema.
+
+## Comparativa de velocidad (opcional)
+
+El botón **"⏱ Comparar velocidad con un LLM"** corre la misma tarea en Jev y en un
+LLM tradicional (OpenAI o Anthropic), uno tras otro, y muestra los milisegundos de
+cada uno lado a lado más cuántas decisiones coincidieron.
+
+Para activarlo, agrega en tu `.env`:
+
+```
+LLM_PROVIDER=openai            # openai | anthropic
+LLM_API_KEY=sk-...             # tu key del LLM
+LLM_MODEL=gpt-4o-mini          # el modelo al que tengas acceso
+```
+
+Cómo funciona: el LLM recibe las mismas preguntas, pero se le pide que responda en
+JSON por prompt (que es como se usaría un LLM para esta tarea). Jev, en cambio,
+devuelve valores tipados y probabilidades calibradas de forma nativa. La comparación
+mide el tiempo de ida y vuelta de cada uno a través del mismo proxy, así que es pareja.
+
+> Nota: es una comparación ilustrativa de una tarea "System One" (clasificar/decidir),
+> justo donde Jev está optimizado. No es un benchmark exhaustivo.
 
 ## Nota sobre publicarlo
 

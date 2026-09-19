@@ -89,6 +89,20 @@
   }
   .run:hover { background: #000; }
   .run:disabled { opacity: .5; cursor: default; }
+  .run.alt { background: #fff; color: var(--ink); border: 1px solid var(--line); margin-top: 10px; }
+  .run.alt:hover { background: #faf9fb; border-color: var(--magenta); }
+
+  .cmp { margin-top: 18px; }
+  .cmp:empty { display: none; }
+  .cmp-head { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 12px; }
+  .cmp-row { display: grid; grid-template-columns: 128px 1fr 68px; align-items: center; gap: 10px; margin-bottom: 9px; }
+  .cmp-name { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmp-bar { height: 11px; background: var(--track); border-radius: 6px; overflow: hidden; }
+  .cmp-bar i { display: block; height: 100%; border-radius: 6px; transition: width .6s cubic-bezier(.2,.7,.2,1); }
+  .cmp-ms { font-size: 12.5px; text-align: right; }
+  .cmp-note { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .cmp-note b { color: var(--ink); font-weight: 700; }
+  .cmp-note .fast { color: var(--magenta-deep); }
 
   .meta { margin-top: 14px; font-size: 12.5px; color: var(--muted); min-height: 18px; }
   .meta b { color: var(--ink); font-weight: 600; }
@@ -174,8 +188,10 @@
         </div>
 
         <button class="run" id="run">Analizar</button>
+        <button class="run alt" id="compare">⏱ Comparar velocidad con un LLM</button>
         <div class="meta" id="meta"></div>
         <div class="err" id="err"></div>
+        <div class="cmp" id="cmp"></div>
       </div>
     </section>
 
@@ -276,6 +292,91 @@ els.thr.addEventListener("input", () => {
 });
 
 els.run.addEventListener("click", analyze);
+
+// ── Comparativa de velocidad: Jev vs un LLM, misma tarea ──
+document.getElementById("compare").addEventListener("click", compareSpeed);
+
+async function timedCall(url, body) {
+  const t0 = performance.now();
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const ms = Math.round(performance.now() - t0);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+  return { data, ms };
+}
+
+async function compareSpeed() {
+  const comment = els.comment.value.trim();
+  hideErr();
+  if (!comment) return showErr("Escribe o elige un comentario para comparar.");
+
+  const btn = document.getElementById("compare");
+  const cmp = document.getElementById("cmp");
+  btn.disabled = true; btn.textContent = "Midiendo...";
+  cmp.innerHTML = "";
+
+  const body = { state: { comment }, model: "jev-latest", questions: QUESTIONS };
+  try {
+    // Corremos los dos back-to-back, mismo input, mismo momento.
+    const jev = await timedCall("/api/jev", body);
+    lastAnswers = jev.data.answers;
+    render(jev.data.answers);
+    const llm = await timedCall("/api/llm", body);
+    renderCompare(jev, llm);
+  } catch (e) {
+    showErr(e.message || String(e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "⏱ Comparar velocidad con un LLM";
+  }
+}
+
+// Normaliza la respuesta de Jev a un valor simple, para comparar con el LLM
+function jevValue(ans) {
+  if (!ans) return null;
+  if (ans.type === "choice") return ans.choice;
+  if (ans.type === "noul") return ans.noul >= 0.5;
+  if (ans.type === "score") return Math.round(ans.score);
+  return null;
+}
+
+function renderCompare(jev, llm) {
+  const cmp = document.getElementById("cmp");
+  const jms = jev.ms, lms = llm.ms;
+  const max = Math.max(jms, lms, 1);
+  const ratio = (lms / Math.max(jms, 1)).toFixed(1);
+  const model = llm.data.model || "LLM";
+
+  // ¿coincidieron las decisiones?
+  let agree = 0, total = 0;
+  for (const id of ORDER) {
+    const jv = jevValue(jev.data.answers[id]);
+    const lv = llm.data.answers ? llm.data.answers[id] : undefined;
+    if (jv === null || lv === undefined) continue;
+    total++;
+    if (String(jv) === String(lv)) agree++;
+  }
+
+  cmp.innerHTML =
+    `<div class="cmp-head">Velocidad · misma tarea, mismo momento</div>
+     <div class="cmp-row">
+       <span class="cmp-name">Jev</span>
+       <span class="cmp-bar"><i style="width:${Math.round(jms / max * 100)}%;background:var(--magenta)"></i></span>
+       <span class="cmp-ms mono">${jms} ms</span>
+     </div>
+     <div class="cmp-row">
+       <span class="cmp-name" title="${esc(model)}">${esc(model)}</span>
+       <span class="cmp-bar"><i style="width:${Math.round(lms / max * 100)}%;background:#8a8790"></i></span>
+       <span class="cmp-ms mono">${lms} ms</span>
+     </div>
+     <div class="cmp-note">Jev fue <b class="fast">${ratio}× más rápido</b>` +
+     (total ? ` · coincidieron <b>${agree}/${total}</b> decisiones` : ``) +
+     `</div>`;
+}
 
 async function analyze() {
   const comment = els.comment.value.trim();
