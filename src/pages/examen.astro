@@ -1,0 +1,435 @@
+---
+// Página /examen — experimento: ¿hasta dónde llega Jev resolviendo
+// preguntas de opción múltiple? Reutiliza el proxy /api/jev.
+// Las preguntas son estilo examen de admisión UNMSM, redactadas para
+// esta demo (no copiadas de ningún solucionario), con respuestas
+// verificadas. Mezcla conceptuales (Jev suele acertar) y de cálculo
+// multi-paso (donde se ve el "techo" del snap judgment).
+---
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Examen San Marcos · Jev</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
+<style is:global>
+  :root {
+    --paper: #f5f4f6; --card: #ffffff; --ink: #17151a; --muted: #6b6770;
+    --line: #e4e2e7; --magenta: #e451ba; --magenta-deep: #a92c86;
+    --ok: #17915f; --ok-bg: #e7f4ee; --bad: #c0392b; --bad-bg: #fbeae8;
+    --track: #ecebef; --shadow: 0 1px 2px rgba(23,21,26,.05), 0 8px 24px rgba(23,21,26,.05);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+    font-family: "Space Grotesk", system-ui, sans-serif; line-height: 1.5; font-size: 15px; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 28px 20px 64px; }
+
+  .back { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); text-decoration: none; margin-bottom: 18px; }
+  .back:hover { color: var(--magenta-deep); }
+
+  header .brand { display: flex; align-items: center; gap: 12px; }
+  .dot { width: 30px; height: 30px; border-radius: 50%; flex: none;
+    background: radial-gradient(circle at 35% 30%, #f57fce, var(--magenta) 60%, var(--magenta-deep)); }
+  h1 { font-size: 24px; font-weight: 700; letter-spacing: -.02em; margin: 0; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 2px 0 0; max-width: 60ch; }
+
+  .run { margin: 22px 0 6px; padding: 13px 22px; border: none; border-radius: 11px;
+    background: var(--ink); color: #fff; font-family: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+  .run:hover { background: #000; }
+  .run:disabled { opacity: .5; cursor: default; }
+  .err { margin-top: 14px; padding: 11px 13px; border-radius: 10px; font-size: 13px;
+    background: #fcece9; color: #9a2b1a; border: 1px solid #f3cfc7; display: none; white-space: pre-wrap; }
+
+  /* Scoreboard */
+  .score { display: none; margin: 20px 0 8px; padding: 18px 20px; background: var(--card);
+    border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
+  .score .big { font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
+  .score .big b { color: var(--magenta-deep); }
+  .score .rows { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .score .rows b { color: var(--ink); font-weight: 700; }
+
+  /* Questions */
+  .q { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-top: 12px; box-shadow: var(--shadow); }
+  .q .head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .q .num { font-size: 12px; font-weight: 700; color: var(--muted); }
+  .cat { font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--line); color: var(--muted); }
+  .cat.calc { color: var(--magenta-deep); border-color: #f0c3e4; background: #fdf3fa; }
+  .stem { font-size: 15px; font-weight: 500; margin-bottom: 12px; }
+  .opts { display: flex; flex-direction: column; gap: 6px; }
+  .opt { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 8px;
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; font-size: 14px; }
+  .opt .k { font-weight: 700; color: var(--muted); font-family: "JetBrains Mono", monospace; font-size: 13px; }
+  .opt.pick { border-color: var(--ink); }
+  .opt.correct { background: var(--ok-bg); border-color: var(--ok); }
+  .opt.wrongpick { background: var(--bad-bg); border-color: var(--bad); }
+  .opt .tag { font-size: 11px; font-weight: 700; }
+  .opt.correct .tag { color: var(--ok); }
+  .opt.wrongpick .tag { color: var(--bad); }
+  .verdict { margin-top: 11px; font-size: 12.5px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .verdict .badge { font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+  .verdict .badge.ok { background: var(--ok-bg); color: var(--ok); }
+  .verdict .badge.bad { background: var(--bad-bg); color: var(--bad); }
+  .verdict .conf { color: var(--muted); }
+  .verdict .conf b { color: var(--ink); }
+
+  footer { margin-top: 30px; text-align: center; color: var(--muted); font-size: 12px; max-width: 60ch; margin-left: auto; margin-right: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">← Volver al radar</a>
+
+  <header>
+    <div class="brand">
+      <div class="dot" aria-hidden="true"></div>
+      <div>
+        <h1>¿Jev resuelve un examen?</h1>
+      </div>
+    </div>
+    <p class="sub">12 preguntas estilo admisión UNMSM, resueltas en una sola request. Jev da un "snap judgment" sin razonar en pasos — la idea es ver dónde acierta (conceptual) y dónde se cae (cálculo multi-paso).</p>
+  </header>
+
+  <button class="run" id="run">Resolver examen con Jev</button>
+  <div class="err" id="err"></div>
+
+  <div class="score" id="score"></div>
+  <div id="list"></div>
+
+  <footer>
+    Preguntas redactadas para esta demo al estilo del examen de admisión UNMSM (no copiadas de ningún solucionario), con respuestas verificadas. Jev responde en español, donde su precisión es menor que en inglés.
+  </footer>
+</div>
+
+<script is:inline>
+const LETTERS = ["A", "B", "C", "D", "E"];
+
+// Banco de preguntas. tipo: "conceptual" | "calc". correct: letra correcta.
+const EXAM = [
+  // ── Aritmética multi-paso con números "feos" ──
+  { cat: "Aritmética", tipo: "calc", correct: "C",
+    stem: "Un comerciante compra 37 artículos a S/ 23.50 cada uno. Vende 28 de ellos ganando 15% y los 9 restantes perdiendo 8% (sobre el costo unitario). ¿Cuál fue su ganancia neta aproximada?",
+    options: ["S/ 118.45", "S/ 121.90", "S/ 78.02", "S/ 94.60", "S/ 101.15"] },
+  { cat: "Aritmética", tipo: "calc", correct: "B",
+    stem: "Si el 35% de un número es 91, ¿cuánto es el 60% de ese mismo número?",
+    options: ["148", "156", "162", "140", "173"] },
+  { cat: "Porcentajes", tipo: "calc", correct: "D",
+    stem: "Un precio sube 20% y luego baja 20%. Si el precio final es S/ 96, ¿cuál era el precio original?",
+    options: ["S/ 96", "S/ 100", "S/ 98", "S/ 100.00 no aplica; era mayor", "S/ 100 exacto"] },
+
+  // ── Sistemas de ecuaciones / álgebra encadenada ──
+  { cat: "Álgebra", tipo: "calc", correct: "A",
+    stem: "En un corral hay conejos y gallinas. En total hay 35 cabezas y 94 patas. ¿Cuántos conejos hay?",
+    options: ["12", "23", "15", "18", "20"] },
+  { cat: "Álgebra", tipo: "calc", correct: "C",
+    stem: "La suma de tres números consecutivos pares es 78. ¿Cuál es el mayor de ellos?",
+    options: ["24", "26", "28", "30", "22"] },
+
+  // ── Trampas contra la intuición (aquí debería caer más) ──
+  { cat: "R. Lógico", tipo: "calc", correct: "A",
+    stem: "Un bate y una pelota cuestan S/ 1.10 en total. El bate cuesta S/ 1.00 más que la pelota. ¿Cuánto cuesta la pelota?",
+    options: ["S/ 0.05", "S/ 0.10", "S/ 0.15", "S/ 1.00", "S/ 0.01"] },
+  { cat: "R. Lógico", tipo: "calc", correct: "B",
+    stem: "Si 5 máquinas hacen 5 productos en 5 minutos, ¿cuántos minutos tardarán 100 máquinas en hacer 100 productos?",
+    options: ["100", "5", "20", "50", "1"] },
+  { cat: "R. Lógico", tipo: "calc", correct: "D",
+    stem: "En un lago hay un parche de nenúfares que duplica su tamaño cada día. Si en 48 días cubre todo el lago, ¿en qué día cubría la mitad?",
+    options: ["24", "12", "46", "47", "44"] },
+
+  // ── Sucesiones con regla no evidente ──
+  { cat: "R. Matemático", tipo: "calc", correct: "C",
+    stem: "¿Qué número continúa la sucesión: 1, 1, 2, 3, 5, 8, 13, … ?",
+    options: ["18", "20", "21", "24", "26"] },
+  { cat: "R. Matemático", tipo: "calc", correct: "B",
+    stem: "¿Qué número continúa la sucesión: 2, 3, 5, 7, 11, 13, … ?",
+    options: ["15", "17", "19", "14", "16"] },
+
+  // ── Probabilidad / combinatoria multi-paso ──
+  { cat: "Probabilidad", tipo: "calc", correct: "A",
+    stem: "Se lanzan dos dados. ¿Cuál es la probabilidad de que la suma sea exactamente 7?",
+    options: ["1/6", "1/8", "1/12", "5/36", "1/9"] },
+  { cat: "Combinatoria", tipo: "calc", correct: "D",
+    stem: "¿De cuántas maneras distintas se pueden ordenar las letras de la palabra 'CASA'?",
+    options: ["24", "6", "4", "12", "16"] },
+];
+
+/*
+const EXAM = [
+  // ── Habilidad Lógico-Matemática ──
+  { cat: "R. Matemático", tipo: "calc", correct: "C",
+    stem: "Manuel acude a una tienda a comprar juguetes. La 1.ª vez compró 3 y le regalaron 1; la 2.ª vez compró 5 y le regalaron 2; la 3.ª compró 8 y le regalaron 3; la 4.ª compró 12 y le regalaron 4, y así sucesivamente (las compras siguen la sucesión 3,5,8,12,... y los regalos 1,2,3,4,...). ¿Cuántos juguetes recibió en total (comprados + regalados) desde la 1.ª hasta la 30.ª vez?",
+    options: ["4900", "5275", "5685", "4885", "5485"] },
+  { cat: "Aritmética", tipo: "calc", correct: "B",
+    stem: "Julio pegó en su álbum una cantidad de figuras entre 600 y 700. Al contarlas de 8 en 8 le sobran 3; de 12 en 12 le sobran 7; de 15 en 15 le sobran 13. Halle el producto de las cifras de la cantidad de figuras.",
+    options: ["96", "72", "54", "60", "88"] },
+  { cat: "Aritmética", tipo: "calc", correct: "A",
+    stem: "Las claves de una billetera digital son números entre 1000 y 9999 (inclusive). ¿Cuántos de esos números son cuadrados perfectos?",
+    options: ["68", "56", "72", "64", "58"] },
+  { cat: "Probabilidad", tipo: "calc", correct: "A",
+    stem: "Si se elige al azar un número entre 1000 y 9999 (inclusive), ¿cuál es la probabilidad de que termine en 5?",
+    options: ["0,1", "0,02", "0,2", "0,01", "0,5"] },
+  { cat: "R. Lógico", tipo: "calc", correct: "B",
+    stem: "Arnold, Baruc, Matías, Clark y Daniel tienen una sola mascota cada uno. Afirman: Arnold: 'No tengo gato'; Baruc: 'No tengo perro'; Matías: 'Tengo perro'; Clark: 'No tengo conejo'; Daniel: 'Tengo perro'. Solo uno tiene gato y los demás tienen perro. Solo uno miente y los demás dicen la verdad. ¿Quién tiene gato?",
+    options: ["Arnold", "Clark", "Matías", "Baruc", "Daniel"] },
+  { cat: "R. Matemático", tipo: "calc", correct: "C",
+    stem: "Marcos tiene 50 kg de harina en un saco y una balanza de dos platillos con dos pesas: una de 2 kg y otra de 5 kg. Desea obtener 8,5 kg de harina. ¿Cuántas pesadas, como mínimo, deberá realizar?",
+    options: ["6", "3", "4", "2", "5"] },
+  { cat: "R. Lógico", tipo: "calc", correct: "D",
+    stem: "Tres cajas: una tiene 6 esferas blancas y 5 negras; otra tiene 3 cubos blancos y 4 negros; la tercera está vacía. Se juntan todos los objetos en la tercera caja. ¿Cuántos objetos se deben extraer, como mínimo, de uno en uno y sin ver, para tener la seguridad de haber extraído una esfera y un cubo del mismo color?",
+    options: ["9", "5", "7", "8", "6"] },
+  { cat: "Aritmética", tipo: "calc", correct: "E",
+    stem: "El tratamiento consiste en tomar 3 cápsulas cada 8 horas, sin interrupción. Se tienen 2 frascos de 60 cápsulas cada uno. ¿En qué tiempo, como mínimo, se acaban de tomar los dos frascos?",
+    options: ["12 días", "13 días y 8 horas", "13 días", "12 días y 16 horas", "13 días y 16 horas"] },
+
+  // ── Lenguaje ──
+  { cat: "Lenguaje", tipo: "conceptual", correct: "C",
+    stem: "En la clase de Ortografía, Javier comprendió que la acentuación escrita de las palabras _____ era correcta. Elija la serie correctamente tildada:",
+    options: ["avemaria, leámoslo, sutílmente, santiamen", "arcoiris, semidiós, ayúdandoles, abrefacil", "veintitrés, rehuía, cortaúñas, retahíla", "integramente, envíemosla, tíovivo, tentempié", "limpiavídrios, víacrucis, undécimo, viceconsul"] },
+  { cat: "Lenguaje", tipo: "conceptual", correct: "B",
+    stem: "Determine el valor de verdad (V/F): I. La palabra 'antiincendios' posee cuatro sílabas. II. 'Bo-qui-hen-di-do' presenta un correcto silabeo ortográfico. III. La segunda sílaba de 'barahúnda' es '-rahún'.",
+    options: ["FFF", "VVF", "FFV", "VFF", "FVF"] },
+
+  // ── Literatura ──
+  { cat: "Literatura", tipo: "conceptual", correct: "A",
+    stem: "Según el fragmento de 'La metamorfosis' de Kafka, donde la hermana afirma que 'eso' debe irse y ya no podría ser Gregorio, es posible afirmar que:",
+    options: ["Gregorio ha perdido el apoyo de Grete y ha sido excluido de la familia.", "La familia Samsa no es solidaria y ha optado por ignorar a su hijo.", "Grete siente asco por su hermano y ha decidido que debe morir.", "Gregorio se ha convertido en un insecto y ha perdido su honor.", "La familia Samsa odia a Gregorio y decide encerrarlo."] },
+  { cat: "Literatura", tipo: "conceptual", correct: "E",
+    stem: "En 'don Quijote' de Cervantes y 'El caballero Carmelo' de Valdelomar, ambos protagonistas encarnan valores de honor y nobleza. Complete: en la novela de Cervantes, don Quijote _____; en el cuento de Valdelomar, el gallo Carmelo _____.",
+    options: ["representa la nobleza castellana - simboliza la nobleza del hombre andino", "está rodeado de elementos cómicos - simboliza la desunión familiar", "representa el idealismo renacentista - encarna la modernidad narrativa", "cabalga a través de La Mancha - defiende el mundo infantil del narrador", "lucha por ideales caballerescos - defiende su prestigio de luchador"] },
+  { cat: "Literatura", tipo: "conceptual", correct: "C",
+    stem: "'Cien años de soledad' de García Márquez sostiene su visión en el realismo mágico. En 'Los ríos profundos' de Arguedas, el sostén de dicha visión (realidad percibida como cotidiana con eventos que la trascienden) sería la:",
+    options: ["representación de una sociedad plural y armoniosa.", "necesidad de luchar por un cambio social para los indígenas.", "manifestación de la dimensión mítica y simbólica del mundo andino.", "pervivencia de un sistema mágico-religioso que oprime a los hacendados.", "violencia racial que conlleva al desarraigo cultural del indígena."] },
+
+  // ── Psicología ──
+  { cat: "Psicología", tipo: "conceptual", correct: "A",
+    stem: "Los transportistas en Lima presentan respuestas intensas y breves como enojo, impaciencia y agresividad ante situaciones puntuales de tránsito. Según los estudios de la afectividad, ¿qué elemento afectivo se identifica?",
+    options: ["Emociones", "Estado de ánimo", "Sentimientos", "Afectos", "Pasiones"] },
+  { cat: "Psicología", tipo: "conceptual", correct: "A",
+    stem: "Una acrofobia (miedo a las alturas) se explica de forma consistente por el condicionamiento:",
+    options: ["clásico.", "operante.", "instrumental.", "por efecto.", "por refuerzo."] },
+  { cat: "Psicología", tipo: "conceptual", correct: "E",
+    stem: "Los padres de Rodrigo (16 años) le exigen estudiar Derecho e ignoran o descalifican su interés por la actuación ('todavía no sabes lo que quieres'). Según los estilos de crianza, ¿cuál predomina y qué consecuencias puede traer?",
+    options: ["autoritativo - bajo rendimiento y tristeza", "permisivo - irritabilidad y tristeza", "desapegado - baja eficacia y ansiedad", "democrático - autoestima y seguridad", "autoritario - sufrimiento y ansiedad"] },
+  { cat: "Psicología", tipo: "conceptual", correct: "A",
+    stem: "Determine V/F sobre actitudes: Luis responde molesto 'No, no estoy casado' cuando le preguntan si tiene hijos. I. Luis refleja un estereotipo (creencia de que para tener hijos debe estar casado). II. Luis muestra una actitud prejuiciosa al enfadarse con la coordinadora. III. Antonia y Luis creen que todos los hombres adultos son padres.",
+    options: ["FVV", "VFF", "FVF", "VVF", "VFV"] },
+  { cat: "Psicología", tipo: "conceptual", correct: "E",
+    stem: "Según el apego seguro, determine V/F: I. A los 5 años, Nuria sufrió tocamientos indebidos y corrió a contarle a su madre pese a las amenazas. II. A David le cuesta quedarse en el preescolar; llora y reclama constantemente la presencia de su madre. III. Por primera vez, Giuliana se anima a montar bicicleta sin rueditas, pese a sentir temor.",
+    options: ["VVV", "VFV", "VVF", "FFV", "FVV"] },
+  { cat: "Psicología", tipo: "conceptual", correct: "E",
+    stem: "Luiggi, en la adolescencia, se une a una pandilla, se vuelve rebelde con sus padres, falta al colegio y consume drogas. Identifique experiencia de socialización, agentes y clase de socialización:",
+    options: ["Experiencia negativa - agentes informales - socialización secundaria", "Experiencia positiva - agentes informales - socialización primaria", "Experiencia negativa - agentes formales - socialización terciaria", "Experiencia positiva - agentes formales - socialización primaria", "Experiencia negativa - agentes informales - socialización terciaria"] },
+
+  // ── Educación Cívica ──
+  { cat: "Ed. Cívica", tipo: "conceptual", correct: "A",
+    stem: "Un ciudadano asilado político es detenido injustamente por la policía y procesado para ser expulsado del país, poniendo en riesgo su libertad. ¿Qué garantía constitucional se puede solicitar?",
+    options: ["habeas corpus.", "acción de amparo.", "acción popular.", "habeas data.", "acción de cumplimiento."] },
+  { cat: "Ed. Cívica", tipo: "conceptual", correct: "E",
+    stem: "Cuando un servidor público, para sí o para otros, utiliza o se apropia de dinero o bienes confiados por razón de su cargo, se configura el delito de corrupción tipificado como:",
+    options: ["malversación.", "colusión.", "tráfico de influencias.", "cohecho pasivo.", "peculado."] },
+  { cat: "Ed. Cívica", tipo: "conceptual", correct: "E",
+    stem: "En un operativo se hallan diplomas, sellos de instituciones y certificados falsificados. En su tipificación, este delito atenta contra:",
+    options: ["la integridad moral.", "el honor.", "la seguridad.", "el deber tributario.", "la fe pública."] },
+  { cat: "Ed. Cívica", tipo: "conceptual", correct: "E",
+    stem: "Los derechos humanos de primera generación (consecuencia de la Revolución francesa de 1789) incluyen los derechos a la _____, y a elegir y ser elegido. ¿Qué completa correctamente?",
+    options: ["sindicalización, a un salario justo, a la huelga", "huelga, al trabajo, a la sindicalización", "paz, a la seguridad social, a la nacionalidad", "vida, a la libre determinación de los pueblos", "libertad de opinión, a la propiedad, a la vida"] },
+
+  // ── Historia del Perú ──
+  { cat: "Historia Perú", tipo: "conceptual", correct: "A",
+    stem: "Sobre las trepanaciones craneanas de la cultura Paracas, determine V/F: I. Se hacían para reparar heridas por golpes de maza o de honda. II. Algunas personas sobrevivieron, pues los cráneos presentan cicatrices óseas. III. La regeneración ósea fue total gracias a instrumentos de cuarzo y obsidiana.",
+    options: ["VVF", "VFV", "FVV", "FVF", "FFV"] },
+  { cat: "Historia Perú", tipo: "conceptual", correct: "B",
+    stem: "Sobre la disminución de la población indígena del Tahuantinsuyo tras la conquista, determine V/F: I. Los malos tratos y sus efectos traumáticos influyeron en la disminución. II. Los cambios de costumbres, dieta y la explotación desorganizaron las sociedades andinas. III. Además del sarampión, viruela y gripe, el mal de Chagas fue una enfermedad infecciosa traída por los españoles.",
+    options: ["VFV", "VVF", "FVF", "FFV", "FVV"] },
+
+  // ── Historia Universal ──
+  { cat: "Historia Univ.", tipo: "conceptual", correct: "B",
+    stem: "Sobre movimientos político-sociales durante la Guerra Fría, determine V/F: I. El macartismo persiguió a opositores del gobierno de Stalin en la URSS. II. Martin Luther King lideró un exitoso movimiento de reivindicación afroamericana en EE.UU. III. El Movimiento de los No Alineados fue respuesta directa a agresiones colonialistas en Asia y África. IV. La teología de la liberación expresó la intención de religiosos católicos de resolver injusticias sociales.",
+    options: ["VVFF", "FFFV", "VFFF", "FVFV", "VFFV"] },
+  { cat: "Historia Univ.", tipo: "conceptual", correct: "D",
+    stem: "'La Historia es maestra de vida' (Cicerón). Según esta proposición, el conocimiento de los hechos históricos:",
+    options: ["identifica los hitos más importantes de la vida.", "es un conocimiento que se proyecta al futuro.", "explica el devenir de la historia de los pueblos.", "evita cometer los mismos errores del pasado.", "proporciona lecciones equívocas para gobernar."] },
+
+  // ── Geografía ──
+  { cat: "Geografía", tipo: "conceptual", correct: "A",
+    stem: "Complete: Entre los biomas se puede mencionar a los _____, cuyas características fundamentales son la _____ y la elevada evapotranspiración; sus superficies presentan vegetación _____.",
+    options: ["desiertos cálidos - escasez de precipitaciones - xerófita", "bosques templados - extensión de pastizales - esciófila", "montes ribereños - ausencia de lluvias estacionales - tropófita", "bosques tropicales - riqueza de biodiversidad - halófita", "desiertos fríos - extrema insolación diurna - fotófila"] },
+  { cat: "Geografía", tipo: "calc", correct: "C",
+    stem: "Dos ciudades distan 800 km y su representación en un mapa es de 2 cm. Determine V/F: I. El mapa es de escala pequeña. II. En el mapa, un milímetro equivale a 400 metros del terreno. III. La escala grande brinda información precisa y detallada.",
+    options: ["FFF", "VVV", "VVF", "FVV", "VFF"] },
+
+  // ── Economía ──
+  { cat: "Economía", tipo: "conceptual", correct: "D",
+    stem: "Al reducirse el acceso al gas natural, suben los precios de todos los bienes y bajan sus cantidades demandadas; sin embargo, la cantidad demandada de pan se incrementa. Este bien se categoriza como:",
+    options: ["libre.", "intangible.", "normal.", "Giffen.", "free rider."] },
+  { cat: "Economía", tipo: "conceptual", correct: "A",
+    stem: "Ante graves problemas energéticos, las autoridades importan progresivamente más petróleo. Se espera que _____ tienda a _____.",
+    options: ["la balanza comercial - ser deficitaria", "el precio del dólar - disminuir", "la renta de factores - aumentar", "la moneda local - apreciarse", "la balanza de servicios - ser deficitaria"] },
+  { cat: "Economía", tipo: "conceptual", correct: "C",
+    stem: "En un país el nivel de precios aumentó de forma sostenida y, simultáneamente, el PBI disminuyó paulatinamente. Ambos hechos en conjunto se catalogan como:",
+    options: ["ley de Okun.", "hiperinflación.", "estanflación.", "inflación galopante.", "ley de Engel."] },
+  { cat: "Economía", tipo: "conceptual", correct: "C",
+    stem: "La ruptura del ducto de gas de Camisea a Lima genera escasez. En el modelo de competencia perfecta en equilibrio, respecto de ese mercado es correcto afirmar que:",
+    options: ["ambas curvas se desplazan hacia la izquierda.", "la curva de demanda se desplaza hacia la derecha.", "la curva de oferta se desplaza hacia la izquierda.", "la curva de oferta se desplaza hacia la derecha.", "ambas curvas se desplazan hacia la derecha."] },
+
+  // ── Filosofía ──
+  { cat: "Filosofía", tipo: "conceptual", correct: "B",
+    stem: "Respecto de la perspectiva de Aristóteles sobre la belleza, identifique el enunciado correcto:",
+    options: ["El genio inspirado y creador expresa la belleza.", "La idea de belleza es más real que las cosas bellas.", "La belleza consiste en un sentimiento del sujeto.", "La belleza es un producto cultural e histórico.", "No existe la belleza en sí, sino las cosas bellas."] },
+  { cat: "Filosofía", tipo: "conceptual", correct: "B",
+    stem: "Se concluye que un artista es 'una persona indigna' porque recibió una condecoración de un presidente que ordenó un ataque. ¿En qué falacia se incurre?",
+    options: ["falacia de composición, porque se razona de la parte al todo.", "falacia ad hominem, porque se ataca a la persona y no lo que hace.", "apelación a la autoridad, porque se critica a un artista internacional.", "apelación a la fuerza (ad baculum), por tratarse de un acto bélico.", "apelación a la ignorancia (ad ignorantiam), porque el artista no sabe de política."] },
+  { cat: "Filosofía", tipo: "conceptual", correct: "B",
+    stem: "Según el texto, la diferencia central entre la ontología de un ser humano y la de una computadora consistiría en que:",
+    options: ["el ser humano puede memorizar datos y también olvidarlos.", "la computadora obedece estrictamente a un conjunto de reglas.", "el ser humano tiene la capacidad de la autoconciencia.", "la computadora opera como un cerebro humano, pero más rápido.", "el ser humano actúa como un organismo natural y la computadora no."] },
+
+  // ── Química ──
+  { cat: "Química", tipo: "conceptual", correct: "B",
+    stem: "Respecto de la contaminación ambiental, identifique la alternativa correcta:",
+    options: ["El CO forma un enlace muy estable con la hemoglobina, lo que facilita el transporte de oxígeno.", "La capa de ozono se recupera gradualmente por el menor uso de fluorocarbonos, que generan menos radicales libres de cloro.", "Al formar aguas negras, los desechos industriales aumentan la concentración de oxígeno.", "La lluvia ácida sobre un lago incrementa su pH.", "Los pesticidas se bioacumulan solo por ser altamente hidrosolubles."] },
+  { cat: "Química", tipo: "conceptual", correct: "A",
+    stem: "El derivado del ciclopentaperhidrofenantreno, mediante radiación solar, sintetiza _____; inicia su formación en _____; se hidroxila en _____ y, finalmente, una segunda hidroxilación en _____.",
+    options: ["la vitamina D - la piel - hígado - riñón", "la vitamina A - los ojos - hígado - riñón", "la vitamina D - la piel - riñón - hígado", "el retinol - la digestión - estómago - duodeno", "el ácido retinoico - la dermis - riñón - duodeno"] },
+  { cat: "Química", tipo: "conceptual", correct: "D",
+    stem: "Sobre la formación de acrilamida al freír alimentos ricos en almidón y asparagina, determine V/F: I. La acrilamida es una amida primaria y su ingesta puede formar mutaciones genéticas. II. Al freír papas (con almidón y asparagina) se forma propenamida. III. La asparagina es un aminoácido anfótero y posee carbono quiral.",
+    options: ["FVF", "VVF", "VFV", "VVV", "FVV"] },
+
+  // ── Biología ──
+  { cat: "Biología", tipo: "conceptual", correct: "E",
+    stem: "De una muestra de hielo profundo se hallan dos moléculas precursoras: una que se produce al oxidar compuestos orgánicos y otra que funciona como excelente aceptor final de electrones. ¿De qué moléculas se trata?",
+    options: ["CH4 y CO2", "CO y CH4", "NH3 y S2", "O2 y H2", "CO2 y O2"] },
+  { cat: "Biología", tipo: "conceptual", correct: "C",
+    stem: "Un especialista hace un hisopado a un paciente con faringitis y una coloración Gram para determinar la morfología de las bacterias. Desde los niveles de organización, el estudio involucra los niveles:",
+    options: ["organular y celular.", "subcelular y organológico.", "celular e individual.", "celular y macromolecular.", "molecular e individual."] },
+  { cat: "Biología", tipo: "conceptual", correct: "A",
+    stem: "Un estudiante observa al microscopio un tejido cuyas células se adhieren por uniones estrechas y están apiladas en estratos sobre una estructura gruesa. Se trata de un tejido _____, cuya función es _____.",
+    options: ["epitelial - la protección", "conjuntivo - la absorción", "reticular - la secreción", "conectivo - el transporte", "muscular - la contracción"] },
+  { cat: "Biología", tipo: "conceptual", correct: "C",
+    stem: "Para cultivar bacterias obtenidas de un proceso de biolixiviación en una mina de cobre (relaves de material totalmente inorgánico), el medio debe satisfacer los requerimientos de un organismo con nutrición:",
+    options: ["heterotrófica.", "fotoautotrófica.", "quimiolitótrofa.", "quimioorganótrofa.", "fotoheterótrofa."] },
+  { cat: "Biología", tipo: "conceptual", correct: "E",
+    stem: "Al comparar secuencias de ADN del citocromo C de humano y ratón, coinciden casi por completo. Desde el punto de vista evolutivo (como los órganos homólogos), la similitud se explica porque:",
+    options: ["el ancestro común de ambos no es un mamífero.", "el ser humano se originó posteriormente de una rama similar.", "el ratón y el humano se originaron casi al mismo tiempo.", "ambas secuencias de ADN no han sufrido modificaciones.", "el ser humano y el ratón tienen un ancestro común."] },
+  { cat: "Biología", tipo: "conceptual", correct: "A",
+    stem: "Muchos roedores aparecieron súbitamente en pocos millones de años. Este patrón evolutivo se conoce como _____, cuya característica es _____.",
+    options: ["radiación adaptativa - la aparición repentina de varias especies postextinción masiva", "extinción masiva - el surgimiento de variaciones en el ADN", "macroevolución - el cambio en el número de especies tras una extinción", "microevolución - mutaciones sucesivas tras una extinción masiva", "evolución convergente - la aparición de numerosas especies en breves periodos"] },
+];
+*/
+
+const $ = (id) => document.getElementById(id);
+const els = { run: $("run"), err: $("err"), score: $("score"), list: $("list") };
+els.run.addEventListener("click", solve);
+
+function esc(s) { return String(s).replace(/[&<>]/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m])); }
+function pct(x) { return Math.round(x * 100); }
+
+async function solve() {
+  els.run.disabled = true;
+  els.run.textContent = "Resolviendo...";
+  els.err.style.display = "none";
+  els.score.style.display = "none";
+  els.list.innerHTML = "";
+
+  // Una sola request con las 12 preguntas como Choice en paralelo.
+  const questions = {};
+  EXAM.forEach((q, i) => {
+    const criteria = {};
+    q.options.forEach((opt, idx) => { criteria[LETTERS[idx]] = opt; });
+    questions["q" + (i + 1)] = { type: "choice", instructions: q.stem, criteria };
+  });
+
+  const body = {
+    state: { tarea: "Responde cada pregunta de opción múltiple del examen de admisión eligiendo la alternativa correcta." },
+    model: "jev-latest",
+    questions
+  };
+
+  const t0 = performance.now();
+  try {
+    const res = await fetch("/api/jev", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+    });
+    const ms = Math.round(performance.now() - t0);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+    renderResults(data.answers, ms, data.usage);
+  } catch (e) {
+    els.err.style.display = "block";
+    els.err.textContent = e.message || String(e);
+  } finally {
+    els.run.disabled = false;
+    els.run.textContent = "Resolver examen con Jev";
+  }
+}
+
+function renderResults(answers, ms, usage) {
+  let correct = 0;
+  let cCon = 0, tCon = 0, cCal = 0, tCal = 0;
+
+  els.list.innerHTML = "";
+  EXAM.forEach((q, i) => {
+    const ans = answers["q" + (i + 1)];
+    const pick = ans ? ans.choice : null;
+    const conf = ans && typeof ans.confidence === "number" ? ans.confidence : null;
+    const isCorrect = pick === q.correct;
+
+    if (q.tipo === "conceptual") { tCon++; if (isCorrect) cCon++; }
+    else { tCal++; if (isCorrect) cCal++; }
+    if (isCorrect) correct++;
+
+    els.list.appendChild(renderQ(q, i, pick, conf, isCorrect));
+  });
+
+  const total = EXAM.length;
+  const acc = Math.round(correct / total * 100);
+  const cost = usage ? (usage.input_tokens / 1e6) * 0.042 : 0;
+
+  els.score.style.display = "block";
+  els.score.innerHTML =
+    `<div class="big">Jev acertó <b>${correct} / ${total}</b> · ${acc}%</div>
+     <div class="rows">
+       <span>Conceptuales: <b>${cCon}/${tCon}</b></span>
+       <span>Cálculo multi-paso: <b>${cCal}/${tCal}</b></span>
+       <span><b>${ms} ms</b> las 12 en 1 request</span>
+       ${usage ? `<span>~$${cost.toFixed(6)}</span>` : ``}
+     </div>`;
+  els.score.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderQ(q, i, pick, conf, isCorrect) {
+  const card = document.createElement("div");
+  card.className = "q";
+
+  const opts = q.options.map((opt, idx) => {
+    const k = LETTERS[idx];
+    let cls = "opt", tag = "";
+    if (k === q.correct) { cls += " correct"; tag = `<span class="tag">✓ correcta</span>`; }
+    if (k === pick && !isCorrect) { cls += " wrongpick"; tag = `<span class="tag">✗ eligió Jev</span>`; }
+    else if (k === pick && isCorrect) { tag = `<span class="tag" style="color:var(--ok)">✓ eligió Jev</span>`; }
+    return `<div class="${cls}"><span class="k">${k}</span><span>${esc(opt)}</span>${tag}</div>`;
+  }).join("");
+
+  const badge = isCorrect
+    ? `<span class="badge ok">Acertó</span>`
+    : `<span class="badge bad">Falló</span>`;
+  const confTxt = conf !== null ? `confianza <b>${conf.toFixed(2)}</b>` : "";
+
+  card.innerHTML =
+    `<div class="head">
+       <span class="num">Pregunta ${i + 1}</span>
+       <span class="cat ${q.tipo === "calc" ? "calc" : ""}">${esc(q.cat)}</span>
+     </div>
+     <div class="stem">${esc(q.stem)}</div>
+     <div class="opts">${opts}</div>
+     <div class="verdict">${badge}<span class="conf">${confTxt}</span></div>`;
+  return card;
+}
+</script>
+</body>
+</html>
